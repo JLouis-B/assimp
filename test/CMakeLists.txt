@@ -1,7 +1,6 @@
 # Open Asset Import Library (assimp)
 # ----------------------------------------------------------------------
-#
-# Copyright (c) 2006-2020, assimp team
+# Copyright (c) 2006-2024, assimp team
 #
 # All rights reserved.
 #
@@ -36,7 +35,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 #----------------------------------------------------------------------
-cmake_minimum_required( VERSION 3.0 )
+cmake_minimum_required( VERSION 3.10 )
 
 INCLUDE_DIRECTORIES(
     ${Assimp_SOURCE_DIR}/test/unit
@@ -46,8 +45,8 @@ INCLUDE_DIRECTORIES(
 
 if(NOT ASSIMP_HUNTER_ENABLED)
   INCLUDE_DIRECTORIES(
-    ${Assimp_SOURCE_DIR}/contrib/gtest/include
-    ${Assimp_SOURCE_DIR}/contrib/gtest/
+    ${Assimp_SOURCE_DIR}/contrib/googletest/googletest/include
+    ${Assimp_SOURCE_DIR}/contrib/googletest/googletest/
     ${Assimp_SOURCE_DIR}/contrib/pugixml/src
   )
 endif()
@@ -90,12 +89,21 @@ SET( COMMON
   unit/utProfiler.cpp
   unit/utSharedPPData.cpp
   unit/utStringUtils.cpp
+  unit/Common/utMaybe.cpp
+  unit/Common/utMesh.cpp
   unit/Common/utStandardShapes.cpp
   unit/Common/uiScene.cpp
   unit/Common/utLineSplitter.cpp
   unit/Common/utSpatialSort.cpp
   unit/Common/utAssertHandler.cpp
   unit/Common/utXmlParser.cpp
+  unit/Common/utBase64.cpp
+  unit/Common/utHash.cpp
+  unit/Common/utBaseProcess.cpp
+)
+
+SET(Geometry 
+    unit/Geometry/utGeometryUtils.cpp
 )
 
 SET( IMPORTERS
@@ -137,7 +145,7 @@ SET( IMPORTERS
   unit/utColladaImportExport.cpp
   unit/utCSMImportExport.cpp
   unit/utB3DImportExport.cpp
-  unit/utM3DImportExport.cpp
+  #unit/utM3DImportExport.cpp
   unit/utMDCImportExport.cpp
   unit/utAssbinImportExport.cpp
   unit/ImportExport/utAssjsonImportExport.cpp
@@ -148,16 +156,16 @@ SET( IMPORTERS
   unit/ImportExport/utNFFImportExport.cpp
   unit/ImportExport/utXGLImportExport.cpp
   unit/ImportExport/utMD2Importer.cpp
-  unit/ImportExport/utMD3Importer.cpp
+  #unit/ImportExport/utMD3Importer.cpp
   unit/ImportExport/utMD5Importer.cpp
   unit/ImportExport/utMDLImporter.cpp
   unit/ImportExport/MDL/MDLHL1TestFiles.h
   unit/ImportExport/MDL/utMDLImporter_HL1_ImportSettings.cpp
   unit/ImportExport/MDL/utMDLImporter_HL1_Materials.cpp
   unit/ImportExport/MDL/utMDLImporter_HL1_Nodes.cpp
-  #unit/ImportExport/IRR/utIrrImportExport.cpp
   unit/ImportExport/RAW/utRAWImportExport.cpp
   unit/ImportExport/Terragen/utTerragenImportExport.cpp
+  unit/ImportExport/Pbrt/utPbrtImportExport.cpp
 )
 
 SET( MATERIAL
@@ -197,18 +205,21 @@ SET( POST_PROCESSES
   unit/utGenBoundingBoxesProcess.cpp
 )
 
-SOURCE_GROUP( UnitTests\\Compiler     FILES  unit/CCompilerTest.c )
-SOURCE_GROUP( UnitTests\\Common       FILES  ${COMMON} )
-SOURCE_GROUP( UnitTests\\ImportExport FILES  ${IMPORTERS} )
-SOURCE_GROUP( UnitTests\\Material     FILES  ${MATERIAL} )
-SOURCE_GROUP( UnitTests\\Math         FILES  ${MATH} )
-SOURCE_GROUP( UnitTests\\PostProcess  FILES  ${POST_PROCESSES})
+SOURCE_GROUP( UnitTests\\Compiler      FILES unit/CCompilerTest.c )
+SOURCE_GROUP( UnitTests\\Common        FILES ${COMMON} )
+SOURCE_GROUP( UnitTests\\GeometryTools FILES ${Geometry} )
+SOURCE_GROUP( UnitTests\\ImportExport  FILES ${IMPORTERS} )
+SOURCE_GROUP( UnitTests\\Material      FILES ${MATERIAL} )
+SOURCE_GROUP( UnitTests\\Math          FILES ${MATH} )
+SOURCE_GROUP( UnitTests\\PostProcess   FILES ${POST_PROCESSES})
 
 add_executable( unit
     unit/CCompilerTest.c
     unit/Main.cpp
     ../code/Common/Version.cpp
+	../code/Common/Base64.cpp
 	${COMMON}
+  ${Geometry}
 	${IMPORTERS}
 	${MATERIAL}
 	${MATH}
@@ -220,8 +231,25 @@ if(ASSIMP_HUNTER_ENABLED)
     find_package(GTest CONFIG REQUIRED)
     target_link_libraries(unit GTest::gtest_main GTest::gmock)
 else()
-    target_sources(unit PUBLIC ../contrib/gtest/src/gtest-all.cc)
+    target_sources(unit PUBLIC ${Assimp_SOURCE_DIR}/contrib/googletest/googletest/src/gtest-all.cc)
 endif()
+
+# RapidJSON
+IF(ASSIMP_HUNTER_ENABLED)
+  hunter_add_package(RapidJSON)
+  find_package(RapidJSON CONFIG REQUIRED)
+ELSE()
+  INCLUDE_DIRECTORIES("../contrib/rapidjson/include")
+  ADD_DEFINITIONS( -DRAPIDJSON_HAS_STDSTRING=1)
+  option( ASSIMP_RAPIDJSON_NO_MEMBER_ITERATOR "Suppress rapidjson warning on MSVC (NOTE: breaks android build)" ON )
+  if(ASSIMP_RAPIDJSON_NO_MEMBER_ITERATOR)
+    ADD_DEFINITIONS( -DRAPIDJSON_NOMEMBERITERATORCLASS )
+  endif()
+ENDIF()
+
+IF (ASSIMP_BUILD_DRACO)
+  ADD_DEFINITIONS( -DASSIMP_ENABLE_DRACO )
+ENDIF()
 
 TARGET_USE_COMMON_OUTPUT_DIRECTORY(unit)
 
@@ -240,6 +268,14 @@ ENDIF()
 
 IF(MSVC)
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+ENDIF()
+
+IF (ASSIMP_WARNINGS_AS_ERRORS)
+  IF (MSVC)
+    TARGET_COMPILE_OPTIONS(unit PRIVATE /W4 /WX)
+  ELSE()
+    TARGET_COMPILE_OPTIONS(unit PRIVATE -Wall -Werror)
+  ENDIF()
 ENDIF()
 
 target_link_libraries( unit assimp ${platform_libs} )

@@ -29,6 +29,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <string>
 #include <vector>
+#include <functional>
 
 BEGIN_ODDLPARSER_NS
 
@@ -38,15 +39,6 @@ class Value;
 struct Identifier;
 struct Reference;
 struct Property;
-
-template <class T>
-inline bool isEmbeddedCommentOpenTag(T *in, T *end) {
-    if (in == '/' && in + 1 == '*') {
-        return true;
-    }
-
-    return false;
-}
 
 ///	@brief  Utility function to search for the next token or the end of the buffer.
 /// @param  in      [in] The start position in the buffer.
@@ -97,8 +89,8 @@ DLL_ODDLPARSER_EXPORT const char *getTypeToken(Value::ValueType type);
 //-------------------------------------------------------------------------------------------------
 class DLL_ODDLPARSER_EXPORT OpenDDLParser {
 public:
-    ///	@brief  The log callback function pointer.
-    typedef void (*logCallback)(LogSeverity severity, const std::string &msg);
+    ///	@brief  The log callback function.
+    typedef std::function<void (LogSeverity severity, const std::string &msg)> logCallback;
 
 public:
     ///	@brief  The default class constructor.
@@ -119,6 +111,11 @@ public:
     ///	@brief  Getter for the log callback.
     /// @return The current log callback.
     logCallback getLogCallback() const;
+
+    /// @brief  A default log callback that writes to a FILE.
+    /// @param  destination [in] Output stream. NULL will use stderr.
+    /// @return A callback that you can pass to setLogCallback.
+    static logCallback StdLogCallback(FILE *destination = nullptr);
 
     ///	@brief  Assigns a new buffer to parse.
     ///	@param  buffer      [in] The buffer
@@ -192,6 +189,9 @@ private:
     typedef std::vector<DDLNode *> DDLNodeStack;
     DDLNodeStack m_stack;
     Context *m_context;
+
+    ///	@brief  Callback for StdLogCallback(). Not meant to be called directly.
+    static void logToStream (FILE *, LogSeverity, const std::string &);
 };
 
 END_ODDLPARSER_NS

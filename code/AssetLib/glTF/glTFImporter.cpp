@@ -2,7 +2,7 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2020, assimp team
+Copyright (c) 2006-2024, assimp team
 
 All rights reserved.
 
@@ -43,7 +43,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "AssetLib/glTF/glTFImporter.h"
 #include "AssetLib/glTF/glTFAsset.h"
+#if !defined(ASSIMP_BUILD_NO_EXPORT)
 #include "AssetLib/glTF/glTFAssetWriter.h"
+#endif
 #include "PostProcessing/MakeVerboseFormat.h"
 
 #include <assimp/StringComparison.h>
@@ -60,11 +62,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 using namespace Assimp;
 using namespace glTF;
 
-//
-// glTFImporter
-//
-
-static const aiImporterDesc desc = {
+static constexpr aiImporterDesc desc = {
     "glTF Importer",
     "",
     "",
@@ -78,37 +76,27 @@ static const aiImporterDesc desc = {
 };
 
 glTFImporter::glTFImporter() :
-        BaseImporter(), meshOffsets(), embeddedTexIdxs(), mScene(nullptr) {
+        mScene(nullptr) {
     // empty
 }
 
-glTFImporter::~glTFImporter() {
-    // empty
-}
+glTFImporter::~glTFImporter() = default;
 
 const aiImporterDesc *glTFImporter::GetInfo() const {
     return &desc;
 }
 
 bool glTFImporter::CanRead(const std::string &pFile, IOSystem *pIOHandler, bool /* checkSig */) const {
-    const std::string &extension = GetExtension(pFile);
-
-    if (extension != "gltf" && extension != "glb") {
+    glTF::Asset asset(pIOHandler);
+    try {
+        asset.Load(pFile,
+                   CheckMagicToken(
+                       pIOHandler, pFile, AI_GLB_MAGIC_NUMBER, 1, 0,
+                       static_cast<unsigned int>(strlen(AI_GLB_MAGIC_NUMBER))));
+        return asset.asset;
+    } catch (...) {
         return false;
     }
-
-    if (pIOHandler) {
-        glTF::Asset asset(pIOHandler);
-        try {
-            asset.Load(pFile, extension == "glb");
-            std::string version = asset.asset.version;
-            return !version.empty() && version[0] == '1';
-        } catch (...) {
-            return false;
-        }
-    }
-
-    return false;
 }
 
 inline void SetMaterialColorProperty(std::vector<int> &embeddedTexIdxs, Asset & /*r*/, glTF::TexProperty prop, aiMaterial *mat,
@@ -234,7 +222,7 @@ void glTFImporter::ImportMeshes(glTF::Asset &r) {
                     buf->EncodedRegion_SetCurrent(mesh.id);
                 } else
                 {
-                    throw DeadlyImportError("GLTF: Can not import mesh: unknown mesh extension (code: \"", to_string(cur_ext->Type),
+                    throw DeadlyImportError("GLTF: Can not import mesh: unknown mesh extension (code: \"", ai_to_string(cur_ext->Type),
                                             "\"), only Open3DGC is supported.");
                 }
             }
@@ -294,7 +282,7 @@ void glTFImporter::ImportMeshes(glTF::Asset &r) {
                 }
             }
 
-            aiFace *faces = 0;
+            aiFace *faces = nullptr;
             unsigned int nFaces = 0;
 
             if (prim.indices) {
@@ -708,7 +696,10 @@ void glTFImporter::InternReadFile(const std::string &pFile, aiScene *pScene, IOS
 
     // read the asset file
     glTF::Asset asset(pIOHandler);
-    asset.Load(pFile, GetExtension(pFile) == "glb");
+    asset.Load(pFile,
+               CheckMagicToken(
+                   pIOHandler, pFile, AI_GLB_MAGIC_NUMBER, 1, 0,
+                   static_cast<unsigned int>(strlen(AI_GLB_MAGIC_NUMBER))));
 
     //
     // Copy the data out

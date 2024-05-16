@@ -3,7 +3,7 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2020, assimp team
+Copyright (c) 2006-2024, assimp team
 
 All rights reserved.
 
@@ -48,14 +48,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef INCLUDED_AI_AMF_IMPORTER_NODE_H
 #define INCLUDED_AI_AMF_IMPORTER_NODE_H
 
-// Header files, stdlib.
+// Header files, Assimp.
+#include <assimp/scene.h>
+#include <assimp/types.h>
+
 #include <list>
 #include <string>
 #include <vector>
-
-// Header files, Assimp.
-#include "assimp/scene.h"
-#include "assimp/types.h"
 
 /// \class CAMFImporter_NodeElement
 /// Base class for elements of nodes.
@@ -89,9 +88,7 @@ public:
 	std::list<AMFNodeElementBase *> Child; ///< Child elements.
 
 public: /// Destructor, virtual..
-	virtual ~AMFNodeElementBase() {
-		// empty
-	}
+	virtual ~AMFNodeElementBase() = default;
 
 	/// Disabled copy constructor and co.
 	AMFNodeElementBase(const AMFNodeElementBase &pNodeElement) = delete;
@@ -104,7 +101,7 @@ protected:
 	/// \param [in] pType - element type.
 	/// \param [in] pParent - parent element.
 	AMFNodeElementBase(const EType pType, AMFNodeElementBase *pParent) :
-			Type(pType), ID(), Parent(pParent), Child() {
+			Type(pType), Parent(pParent) {
 		// empty
 	}
 }; // class IAMFImporter_NodeElement
@@ -175,7 +172,7 @@ struct AMFColor : public AMFNodeElementBase {
 	/// @brief  Constructor.
 	/// @param [in] pParent - pointer to parent node.
 	AMFColor(AMFNodeElementBase *pParent) :
-			AMFNodeElementBase(ENET_Color, pParent), Composed(false), Color(), Profile() {
+			AMFNodeElementBase(ENET_Color, pParent), Composed(false), Color() {
 		// empty
 	}
 };
@@ -240,7 +237,7 @@ struct AMFVertices : public AMFNodeElementBase {
 /// Structure that define volume node.
 struct AMFVolume : public AMFNodeElementBase {
 	std::string MaterialID; ///< Which material to use.
-	std::string Type; ///< What this volume describes can be “region” or “support”. If none specified, “object” is assumed.
+	std::string Type; ///< What this volume describes can be "region" or "support". If none specified, "object" is assumed.
 
 	/// Constructor.
 	/// \param [in] pParent - pointer to parent node.
@@ -271,7 +268,7 @@ struct AMFTexMap : public AMFNodeElementBase {
 	/// Constructor.
 	/// \param [in] pParent - pointer to parent node.
 	AMFTexMap(AMFNodeElementBase *pParent) :
-			AMFNodeElementBase(ENET_TexMap, pParent), TextureCoordinate{}, TextureID_R(), TextureID_G(), TextureID_B(), TextureID_A() {
+			AMFNodeElementBase(ENET_TexMap, pParent), TextureCoordinate{} {
 		// empty
 	}
 };

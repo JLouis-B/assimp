@@ -2,7 +2,7 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2020, assimp team
+Copyright (c) 2006-2024, assimp team
 
 
 All rights reserved.
@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <assimp/material.h>
 #include <assimp/types.h>
 #include <assimp/DefaultLogger.hpp>
+#include <memory>
 
 using namespace Assimp;
 
@@ -160,7 +161,7 @@ aiReturn aiGetMaterialFloatArray(const aiMaterial *pMat,
                 break;
             }
             if (!IsSpace(*cur)) {
-                ASSIMP_LOG_ERROR("Material property" + std::string(pKey) +
+                ASSIMP_LOG_ERROR("Material property", pKey,
                                  " is a string; failed to parse a float array out of it.");
                 return AI_FAILURE;
             }
@@ -238,7 +239,7 @@ aiReturn aiGetMaterialIntegerArray(const aiMaterial *pMat,
                 break;
             }
             if (!IsSpace(*cur)) {
-                ASSIMP_LOG_ERROR("Material property" + std::string(pKey) +
+                ASSIMP_LOG_ERROR("Material property", pKey,
                                  " is a string; failed to parse an integer array out of it.");
                 return AI_FAILURE;
             }
@@ -306,8 +307,7 @@ aiReturn aiGetMaterialString(const aiMaterial *pMat,
         memcpy(pOut->data, prop->mData + 4, pOut->length + 1);
     } else {
         // TODO - implement lexical cast as well
-        ASSIMP_LOG_ERROR("Material property" + std::string(pKey) +
-                         " was found, but is no string");
+        ASSIMP_LOG_ERROR("Material property", pKey, " was found, but is no string");
         return AI_FAILURE;
     }
     return AI_SUCCESS;
@@ -474,7 +474,7 @@ aiReturn aiMaterial::AddBinaryProperty(const void *pInput,
     }
 
     // Allocate a new material property
-    aiMaterialProperty *pcNew = new aiMaterialProperty();
+    std::unique_ptr<aiMaterialProperty> pcNew(new aiMaterialProperty());
 
     // .. and fill it
     pcNew->mType = pType;
@@ -490,7 +490,7 @@ aiReturn aiMaterial::AddBinaryProperty(const void *pInput,
     strcpy(pcNew->mKey.data, pKey);
 
     if (UINT_MAX != iOutIndex) {
-        mProperties[iOutIndex] = pcNew;
+        mProperties[iOutIndex] = pcNew.release();
         return AI_SUCCESS;
     }
 
@@ -503,7 +503,6 @@ aiReturn aiMaterial::AddBinaryProperty(const void *pInput,
         try {
             ppTemp = new aiMaterialProperty *[mNumAllocated];
         } catch (std::bad_alloc &) {
-            delete pcNew;
             return AI_OUTOFMEMORY;
         }
 
@@ -514,7 +513,7 @@ aiReturn aiMaterial::AddBinaryProperty(const void *pInput,
         mProperties = ppTemp;
     }
     // push back ...
-    mProperties[mNumProperties++] = pcNew;
+    mProperties[mNumProperties++] = pcNew.release();
 
     return AI_SUCCESS;
 }
@@ -556,17 +555,23 @@ uint32_t Assimp::ComputeMaterialHash(const aiMaterial *mat, bool includeMatName 
 }
 
 // ------------------------------------------------------------------------------------------------
-void aiMaterial::CopyPropertyList(aiMaterial *pcDest,
+void aiMaterial::CopyPropertyList(aiMaterial *const pcDest,
         const aiMaterial *pcSrc) {
     ai_assert(nullptr != pcDest);
     ai_assert(nullptr != pcSrc);
+    ai_assert(pcDest->mNumProperties <= pcDest->mNumAllocated);
+    ai_assert(pcSrc->mNumProperties <= pcSrc->mNumAllocated);
 
-    unsigned int iOldNum = pcDest->mNumProperties;
+    const unsigned int iOldNum = pcDest->mNumProperties;
     pcDest->mNumAllocated += pcSrc->mNumAllocated;
     pcDest->mNumProperties += pcSrc->mNumProperties;
 
+    const unsigned int numAllocated = pcDest->mNumAllocated;
     aiMaterialProperty **pcOld = pcDest->mProperties;
-    pcDest->mProperties = new aiMaterialProperty *[pcDest->mNumAllocated];
+    pcDest->mProperties = new aiMaterialProperty *[numAllocated];
+
+    ai_assert(!iOldNum || pcOld);
+    ai_assert(iOldNum < numAllocated);
 
     if (iOldNum && pcOld) {
         for (unsigned int i = 0; i < iOldNum; ++i) {

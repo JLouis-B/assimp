@@ -3,7 +3,7 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2020, assimp team
+Copyright (c) 2006-2024, assimp team
 
 All rights reserved.
 
@@ -59,32 +59,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <sstream>
 
+namespace {
+// Checks whether the passed string is a gcs version.
+bool IsGcsVersion(const std::string &s) {
+    if (s.empty()) return false;
+    return std::all_of(s.cbegin(), s.cend(), [](const char c) {
+        // gcs only permits numeric characters.
+        return std::isdigit(static_cast<int>(c));
+    });
+}
+
+// Removes a possible version hash from a filename, as found for example in
+// gcs uris (e.g. `gs://bucket/model.glb#1234`), see also
+// https://github.com/GoogleCloudPlatform/gsutil/blob/c80f329bc3c4011236c78ce8910988773b2606cb/gslib/storage_url.py#L39.
+std::string StripVersionHash(const std::string &filename) {
+    const std::string::size_type pos = filename.find_last_of('#');
+    // Only strip if the hash is behind a possible file extension and the part
+    // behind the hash is a version string.
+    if (pos != std::string::npos && pos > filename.find_last_of('.') &&
+        IsGcsVersion(filename.substr(pos + 1))) {
+        return filename.substr(0, pos);
+    }
+    return filename;
+}
+}  // namespace
+
 using namespace Assimp;
 
 // ------------------------------------------------------------------------------------------------
 // Constructor to be privately used by Importer
 BaseImporter::BaseImporter() AI_NO_EXCEPT
         : m_progress() {
-    /**
-    * Assimp Importer
-    * unit conversions available
-    * if you need another measurment unit add it below.
-    * it's currently defined in assimp that we prefer meters.
-    *
-    * NOTE: Initialised here rather than in the header file
-    * to workaround a VS2013 bug with brace initialisers
-    * */
-    importerUnits[ImporterUnits::M] = 1.0;
-    importerUnits[ImporterUnits::CM] = 0.01;
-    importerUnits[ImporterUnits::MM] = 0.001;
-    importerUnits[ImporterUnits::INCHES] = 0.0254;
-    importerUnits[ImporterUnits::FEET] = 0.3048;
-}
-
-// ------------------------------------------------------------------------------------------------
-// Destructor, private as well
-BaseImporter::~BaseImporter() {
-    // nothing to do here
+    // empty
 }
 
 void BaseImporter::UpdateImporterScale(Importer *pImp) {
@@ -97,7 +103,7 @@ void BaseImporter::UpdateImporterScale(Importer *pImp) {
     // Set active scaling
     pImp->SetPropertyFloat(AI_CONFIG_APP_SCALE_KEY, static_cast<float>(activeScale));
 
-    ASSIMP_LOG_DEBUG_F("UpdateImporterScale scale set: %f", activeScale);
+    ASSIMP_LOG_DEBUG("UpdateImporterScale scale set: ", activeScale);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -170,10 +176,10 @@ void BaseImporter::GetExtensionList(std::set<std::string> &extensions) {
 /*static*/ bool BaseImporter::SearchFileHeaderForToken(IOSystem *pIOHandler,
         const std::string &pFile,
         const char **tokens,
-        unsigned int numTokens,
+        std::size_t numTokens,
         unsigned int searchBytes /* = 200 */,
         bool tokensSol /* false */,
-        bool noAlphaBeforeTokens /* false */) {
+        bool noGraphBeforeTokens /* false */) {
     ai_assert(nullptr != tokens);
     ai_assert(0 != numTokens);
     ai_assert(0 != searchBytes);
@@ -193,7 +199,7 @@ void BaseImporter::GetExtensionList(std::set<std::string> &extensions) {
         }
 
         for (size_t i = 0; i < read; ++i) {
-            buffer[i] = static_cast<char>(::tolower(buffer[i]));
+            buffer[i] = static_cast<char>(::tolower((unsigned char)buffer[i]));
         }
 
         // It is not a proper handling of unicode files here ...
@@ -214,22 +220,23 @@ void BaseImporter::GetExtensionList(std::set<std::string> &extensions) {
             token.clear();
             const char *ptr(tokens[i]);
             for (size_t tokIdx = 0; tokIdx < len; ++tokIdx) {
-                token.push_back(static_cast<char>(tolower(*ptr)));
+                token.push_back(static_cast<char>(tolower(static_cast<unsigned char>(*ptr))));
                 ++ptr;
             }
             const char *r = strstr(buffer, token.c_str());
             if (!r) {
                 continue;
             }
-            // We need to make sure that we didn't accidentially identify the end of another token as our token,
-            // e.g. in a previous version the "gltf " present in some gltf files was detected as "f "
-            if (noAlphaBeforeTokens && (r != buffer && isalpha(r[-1]))) {
+            // We need to make sure that we didn't accidentally identify the end of another token as our token,
+            // e.g. in a previous version the "gltf " present in some gltf files was detected as "f ", or a
+            // Blender-exported glb file containing "Khronos glTF Blender I/O " was detected as "o "
+            if (noGraphBeforeTokens && (r != buffer && isgraph(static_cast<unsigned char>(r[-1])))) {
                 continue;
             }
             // We got a match, either we don't care where it is, or it happens to
             // be in the beginning of the file / line
             if (!tokensSol || r == buffer || r[-1] == '\r' || r[-1] == '\n') {
-                ASSIMP_LOG_DEBUG_F("Found positive match for header keyword: ", tokens[i]);
+                ASSIMP_LOG_DEBUG("Found positive match for header keyword: ", tokens[i]);
                 return true;
             }
         }
@@ -244,59 +251,64 @@ void BaseImporter::GetExtensionList(std::set<std::string> &extensions) {
         const char *ext0,
         const char *ext1,
         const char *ext2) {
-    std::string::size_type pos = pFile.find_last_of('.');
+    std::set<std::string> extensions;
+    for (const char* ext : {ext0, ext1, ext2}) {
+        if (ext == nullptr) continue;
+        extensions.emplace(ext);
+    }
+    return HasExtension(pFile, extensions);
+}
 
-    // no file extension - can't read
-    if (pos == std::string::npos)
-        return false;
-
-    const char *ext_real = &pFile[pos + 1];
-    if (!ASSIMP_stricmp(ext_real, ext0))
-        return true;
-
-    // check for other, optional, file extensions
-    if (ext1 && !ASSIMP_stricmp(ext_real, ext1))
-        return true;
-
-    if (ext2 && !ASSIMP_stricmp(ext_real, ext2))
-        return true;
-
+// ------------------------------------------------------------------------------------------------
+// Check for file extension
+/*static*/ bool BaseImporter::HasExtension(const std::string &pFile, const std::set<std::string> &extensions) {
+    const std::string file = StripVersionHash(pFile);
+    // CAUTION: Do not just search for the extension!
+    // GetExtension() returns the part after the *last* dot, but some extensions
+    // have dots inside them, e.g. ogre.mesh.xml. Compare the entire end of the
+    // string.
+    for (const std::string& ext : extensions) {
+        // Yay for C++<20 not having std::string::ends_with()
+        const std::string dotExt = "." + ext;
+        if (dotExt.length() > file.length()) continue;
+        // Possible optimization: Fetch the lowercase filename!
+        if (0 == ASSIMP_stricmp(file.c_str() + file.length() - dotExt.length(), dotExt.c_str())) {
+            return true;
+        }
+    }
     return false;
 }
 
 // ------------------------------------------------------------------------------------------------
 // Get file extension from path
-std::string BaseImporter::GetExtension(const std::string &file) {
+std::string BaseImporter::GetExtension(const std::string &pFile) {
+    const std::string file = StripVersionHash(pFile);
     std::string::size_type pos = file.find_last_of('.');
 
     // no file extension at all
     if (pos == std::string::npos) {
-        return "";
+        return std::string();
     }
 
     // thanks to Andy Maloney for the hint
     std::string ret = file.substr(pos + 1);
-    std::transform(ret.begin(), ret.end(), ret.begin(), ToLower<char>);
+    ret = ai_tolower(ret);
 
     return ret;
 }
 
+
 // ------------------------------------------------------------------------------------------------
 // Check for magic bytes at the beginning of the file.
 /* static */ bool BaseImporter::CheckMagicToken(IOSystem *pIOHandler, const std::string &pFile,
-        const void *_magic, unsigned int num, unsigned int offset, unsigned int size) {
+        const void *_magic, std::size_t num, unsigned int offset, unsigned int size) {
     ai_assert(size <= 16);
     ai_assert(_magic);
 
     if (!pIOHandler) {
         return false;
     }
-    union {
-        const char *magic;
-        const uint16_t *magic_u16;
-        const uint32_t *magic_u32;
-    };
-    magic = reinterpret_cast<const char *>(_magic);
+    const char *magic = reinterpret_cast<const char *>(_magic);
     std::unique_ptr<IOStream> pStream(pIOHandler->Open(pFile));
     if (pStream) {
 
@@ -318,15 +330,15 @@ std::string BaseImporter::GetExtension(const std::string &file) {
             // that's just for convenience, the chance that we cause conflicts
             // is quite low and it can save some lines and prevent nasty bugs
             if (2 == size) {
-                uint16_t rev = *magic_u16;
-                ByteSwap::Swap(&rev);
-                if (data_u16[0] == *magic_u16 || data_u16[0] == rev) {
+                uint16_t magic_u16;
+                memcpy(&magic_u16, magic, 2);
+                if (data_u16[0] == magic_u16 || data_u16[0] == ByteSwap::Swapped(magic_u16)) {
                     return true;
                 }
             } else if (4 == size) {
-                uint32_t rev = *magic_u32;
-                ByteSwap::Swap(&rev);
-                if (data_u32[0] == *magic_u32 || data_u32[0] == rev) {
+                uint32_t magic_u32;
+                memcpy(&magic_u32, magic, 4);
+                if (data_u32[0] == magic_u32 || data_u32[0] == ByteSwap::Swapped(magic_u32)) {
                     return true;
                 }
             } else {
@@ -341,11 +353,7 @@ std::string BaseImporter::GetExtension(const std::string &file) {
     return false;
 }
 
-#ifdef ASSIMP_USE_HUNTER
-#include <utf8.h>
-#else
-#include "../contrib/utf8cpp/source/utf8.h"
-#endif
+#include "utf8.h"
 
 // ------------------------------------------------------------------------------------------------
 // Convert to UTF8 data
@@ -386,7 +394,10 @@ void BaseImporter::ConvertToUTF8(std::vector<char> &data) {
 
     // UTF 16 BE with BOM
     if (*((uint16_t *)&data.front()) == 0xFFFE) {
-
+        // Check to ensure no overflow can happen
+        if(data.size() % 2 != 0) {
+            return;
+        }
         // swap the endianness ..
         for (uint16_t *p = (uint16_t *)&data.front(), *end = (uint16_t *)&data.back(); p <= end; ++p) {
             ByteSwap::Swap2(p);
@@ -618,7 +629,7 @@ void BatchLoader::LoadAll() {
 
         if (!DefaultLogger::isNullLogger()) {
             ASSIMP_LOG_INFO("%%% BEGIN EXTERNAL FILE %%%");
-            ASSIMP_LOG_INFO_F("File: ", (*it).file);
+            ASSIMP_LOG_INFO("File: ", (*it).file);
         }
         m_data->pImporter->ReadFile((*it).file, pp);
         (*it).scene = m_data->pImporter->GetOrphanedScene();

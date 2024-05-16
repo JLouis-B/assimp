@@ -2,7 +2,7 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2020, assimp team
+Copyright (c) 2006-2024, assimp team
 
 All rights reserved.
 
@@ -53,7 +53,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <assimp/StringComparison.h>
 #include <assimp/StringUtils.h>
 #include <assimp/defs.h>
+
 #include <vector>
+#include <algorithm>
 
 namespace Assimp {
 
@@ -67,18 +69,6 @@ namespace Assimp {
 // use since it doesn't have multi-byte sequences.
 
 static const unsigned int BufferSize = 4096;
-
-// ---------------------------------------------------------------------------------
-template <class char_t>
-AI_FORCE_INLINE char_t ToLower(char_t in) {
-    return (in >= (char_t)'A' && in <= (char_t)'Z') ? (char_t)(in + 0x20) : in;
-}
-
-// ---------------------------------------------------------------------------------
-template <class char_t>
-AI_FORCE_INLINE char_t ToUpper(char_t in) {
-    return (in >= (char_t)'a' && in <= (char_t)'z') ? (char_t)(in - 0x20) : in;
-}
 
 // ---------------------------------------------------------------------------------
 template <class char_t>
@@ -112,8 +102,8 @@ AI_FORCE_INLINE bool IsSpaceOrNewLine(char_t in) {
 
 // ---------------------------------------------------------------------------------
 template <class char_t>
-AI_FORCE_INLINE bool SkipSpaces(const char_t *in, const char_t **out) {
-    while (*in == (char_t)' ' || *in == (char_t)'\t') {
+AI_FORCE_INLINE bool SkipSpaces(const char_t *in, const char_t **out, const char_t *end) {
+    while ((*in == (char_t)' ' || *in == (char_t)'\t') && in != end) {
         ++in;
     }
     *out = in;
@@ -122,19 +112,19 @@ AI_FORCE_INLINE bool SkipSpaces(const char_t *in, const char_t **out) {
 
 // ---------------------------------------------------------------------------------
 template <class char_t>
-AI_FORCE_INLINE bool SkipSpaces(const char_t **inout) {
-    return SkipSpaces<char_t>(*inout, inout);
+AI_FORCE_INLINE bool SkipSpaces(const char_t **inout, const char_t *end) {
+    return SkipSpaces<char_t>(*inout, inout, end);
 }
 
 // ---------------------------------------------------------------------------------
 template <class char_t>
-AI_FORCE_INLINE bool SkipLine(const char_t *in, const char_t **out) {
-    while (*in != (char_t)'\r' && *in != (char_t)'\n' && *in != (char_t)'\0') {
+AI_FORCE_INLINE bool SkipLine(const char_t *in, const char_t **out, const char_t *end) {
+    while ((*in != (char_t)'\r' && *in != (char_t)'\n' && *in != (char_t)'\0') && in != end) {
         ++in;
     }
 
     // files are opened in binary mode. Ergo there are both NL and CR
-    while (*in == (char_t)'\r' || *in == (char_t)'\n') {
+    while ((*in == (char_t)'\r' || *in == (char_t)'\n') && in != end) {
         ++in;
     }
     *out = in;
@@ -143,14 +133,14 @@ AI_FORCE_INLINE bool SkipLine(const char_t *in, const char_t **out) {
 
 // ---------------------------------------------------------------------------------
 template <class char_t>
-AI_FORCE_INLINE bool SkipLine(const char_t **inout) {
-    return SkipLine<char_t>(*inout, inout);
+AI_FORCE_INLINE bool SkipLine(const char_t **inout, const char_t *end) {
+    return SkipLine<char_t>(*inout, inout, end);
 }
 
 // ---------------------------------------------------------------------------------
 template <class char_t>
-AI_FORCE_INLINE bool SkipSpacesAndLineEnd(const char_t *in, const char_t **out) {
-    while (*in == (char_t)' ' || *in == (char_t)'\t' || *in == (char_t)'\r' || *in == (char_t)'\n') {
+AI_FORCE_INLINE bool SkipSpacesAndLineEnd(const char_t *in, const char_t **out, const char_t  *end) {
+    while ((*in == (char_t)' ' || *in == (char_t)'\t' || *in == (char_t)'\r' || *in == (char_t)'\n') && in != end) {
         ++in;
     }
     *out = in;
@@ -159,8 +149,8 @@ AI_FORCE_INLINE bool SkipSpacesAndLineEnd(const char_t *in, const char_t **out) 
 
 // ---------------------------------------------------------------------------------
 template <class char_t>
-AI_FORCE_INLINE bool SkipSpacesAndLineEnd(const char_t **inout) {
-    return SkipSpacesAndLineEnd<char_t>(*inout, inout);
+AI_FORCE_INLINE bool SkipSpacesAndLineEnd(const char_t **inout, const char_t *end) {
+    return SkipSpacesAndLineEnd<char_t>(*inout, inout, end);
 }
 
 // ---------------------------------------------------------------------------------
@@ -220,16 +210,16 @@ AI_FORCE_INLINE bool TokenMatchI(const char *&in, const char *token, unsigned in
 }
 
 // ---------------------------------------------------------------------------------
-AI_FORCE_INLINE void SkipToken(const char *&in) {
-    SkipSpaces(&in);
+AI_FORCE_INLINE void SkipToken(const char *&in, const char *end) {
+    SkipSpaces(&in, end);
     while (!IsSpaceOrNewLine(*in)) {
         ++in;
     }
 }
 
 // ---------------------------------------------------------------------------------
-AI_FORCE_INLINE std::string GetNextToken(const char *&in) {
-    SkipSpacesAndLineEnd(&in);
+AI_FORCE_INLINE std::string GetNextToken(const char *&in, const char *end) {
+    SkipSpacesAndLineEnd(&in, end);
     const char *cur = in;
     while (!IsSpaceOrNewLine(*in)) {
         ++in;
@@ -271,7 +261,7 @@ AI_FORCE_INLINE unsigned int tokenize(const string_type &str, std::vector<string
 inline std::string ai_stdStrToLower(const std::string &str) {
     std::string out(str);
     for (size_t i = 0; i < str.size(); ++i) {
-        out[i] = (char) tolower(out[i]);
+        out[i] = (char) tolower((unsigned char)out[i]);
     }
     return out;
 }
